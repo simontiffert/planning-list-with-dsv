@@ -1,0 +1,7 @@
+<solver xmlns="https://timefold.ai/xsd/solver">
+    <enablePreviewFeature>DECLARATIVE_SHADOW_VARIABLES</enablePreviewFeature>
+    <environmentMode>TRACKED_FULL_ASSERT</environmentMode>
+    <termination>
+        <secondsSpentLimit>5</secondsSpentLimit>
+    </termination>
+</solver>
