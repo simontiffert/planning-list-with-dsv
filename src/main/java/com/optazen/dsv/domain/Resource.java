@@ -57,4 +57,9 @@ public class Resource {
     public void setResourceStartDateTime(LocalDateTime resourceStartDateTime) {
         this.resourceStartDateTime = resourceStartDateTime;
     }
+
+    @Override
+    public String toString() {
+        return id;
+    }
 }

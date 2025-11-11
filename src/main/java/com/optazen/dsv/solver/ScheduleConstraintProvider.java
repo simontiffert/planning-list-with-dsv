@@ -14,19 +14,19 @@ public class ScheduleConstraintProvider implements ConstraintProvider {
     @Override
     public Constraint @NonNull [] defineConstraints(@NonNull ConstraintFactory constraintFactory) {
         return new Constraint[] {
-                requiredStartDateTime(constraintFactory),
+                penalizeInconsistent(constraintFactory),
                 minimizeMakespan(constraintFactory)
         };
     }
 
-    Constraint requiredStartDateTime(ConstraintFactory factory) {
-        return factory.forEachIncludingUnassigned(SubTask.class)
-                .filter(subTask -> subTask.getStartDateTime() == null)
+    protected Constraint penalizeInconsistent(ConstraintFactory factory) {
+        return factory.forEachUnfiltered(SubTask.class)
+                .filter(SubTask::isInconsistent)
                 .penalize(HardSoftLongScore.ONE_HARD)
-                .asConstraint("Required start time");
+                .asConstraint("Inconsistent");
     }
 
-    Constraint minimizeMakespan(ConstraintFactory factory) {
+    protected Constraint minimizeMakespan(ConstraintFactory factory) {
         return factory.forEach(SubTask.class)
                 .filter(subTask -> subTask.getEndDateTime() != null)
                 .filter(subTask -> subTask.getNext() == null)

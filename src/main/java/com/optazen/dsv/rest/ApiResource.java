@@ -57,11 +57,17 @@ public class ApiResource {
         int subTaskCounter = 1;
         for(int i = 0; i < 5; i++) {
             SubTask task1 = new SubTask("S" + subTaskCounter++, "" + i, Duration.ofMinutes(10), List.of());
-            SubTask task2 = new SubTask("S" + subTaskCounter++, "" + i, Duration.ofMinutes(10), List.of());
-            SubTask task3 = new SubTask("S" + subTaskCounter++, "" + i, Duration.ofMinutes(10), List.of(task1, task2));
+            SubTask task2 = new SubTask("S" + subTaskCounter++, "" + i, Duration.ofMinutes(10), List.of(task1));
+            SubTask task3a = new SubTask("S" + subTaskCounter++, "" + i, Duration.ofMinutes(10), List.of(task2));
+            SubTask task3b = new SubTask("S" + subTaskCounter++, "" + i, Duration.ofMinutes(10), List.of(task2));
+            task3a.setConcurrentSubTasks(List.of(task3b));
+            task3b.setConcurrentSubTasks(List.of(task3a));
+            SubTask task4 = new SubTask("S" + subTaskCounter++, "" + i, Duration.ofMinutes(10), List.of(task3a, task3b));
             subTasks.add(task1);
             subTasks.add(task2);
-            subTasks.add(task3);
+            subTasks.add(task3a);
+            subTasks.add(task3b);
+            subTasks.add(task4);
         }
 
         return new Schedule(resources, subTasks);

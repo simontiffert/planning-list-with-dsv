@@ -2,19 +2,17 @@ package com.optazen.dsv.domain;
 
 import ai.timefold.solver.core.api.domain.entity.PlanningEntity;
 import ai.timefold.solver.core.api.domain.lookup.PlanningId;
-import ai.timefold.solver.core.api.domain.variable.InverseRelationShadowVariable;
-import ai.timefold.solver.core.api.domain.variable.NextElementShadowVariable;
-import ai.timefold.solver.core.api.domain.variable.PreviousElementShadowVariable;
-import ai.timefold.solver.core.api.domain.variable.ShadowVariable;
-import ai.timefold.solver.core.preview.api.domain.variable.declarative.ShadowSources;
-import com.fasterxml.jackson.annotation.*;
+import ai.timefold.solver.core.api.domain.variable.*;
+import com.fasterxml.jackson.annotation.JsonIdentityInfo;
+import com.fasterxml.jackson.annotation.JsonIdentityReference;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 
 @JsonIdentityInfo(
         generator = ObjectIdGenerators.PropertyGenerator.class,
@@ -43,11 +41,19 @@ public class SubTask {
     // The next process step execution on the asset
     private SubTask next;
 
+    @JsonIgnore
+    @ShadowVariablesInconsistent
+    private boolean inconsistent;
+
     @JsonIdentityReference(alwaysAsId = true)
-    private List<SubTask> predecessors;
+    private List<SubTask> predecessors = List.of();
 
-    private SubTask unused;
+    // Automatic delay start until last - https://docs.timefold.ai/timefold-solver/latest/design-patterns/design-patterns#chainedThroughTimeAutomaticDelayUntilLast
+    @JsonIdentityReference(alwaysAsId = true)
+    private List<SubTask> concurrentSubTasks = List.of();
 
+    @ShadowVariable(supplierName = "updateReadyDateTime")
+    private LocalDateTime readyDateTime;
     @ShadowVariable(supplierName = "updateStartDateTime")
     private LocalDateTime startDateTime;
     @ShadowVariable(supplierName = "updateEndDateTime")
@@ -63,35 +69,55 @@ public class SubTask {
         this.predecessors = predecessors;
     }
 
-    @ShadowSources({"resource", "previous.endDateTime", "predecessors[].endDateTime", "unused.endDateTime"})
-//    @ShadowSources({"resource", "previous.endDateTime", "predecessors[].endDateTime"})
-    protected LocalDateTime updateStartDateTime() {
+    @ShadowSources({
+            "resource",
+            "previous.endDateTime",
+            "predecessors[].endDateTime"})
+    protected LocalDateTime updateReadyDateTime() {
+        // When there is not yet a resource assigned as PlanningVariable => null
         if (resource == null) {
-            logger.trace("UpdateStartDateTime for {} on {} with result {} vs {}", getId(), resource, null,  startDateTime);
             return null;
         }
 
-        LocalDateTime previousEnd = previous == null ? resource.getResourceStartDateTime() : previous.getEndDateTime();
-        LocalDateTime predecessorEnd = this.getPredecessors() == null ? null : this.getPredecessors().stream()
-                .map(SubTask::getEndDateTime)
-                .filter(Objects::nonNull)
-                .max(LocalDateTime::compareTo)
-                .orElse(null);
+        // If there is a previous sub-task assigned on the resource - use the end time (could be null)
+        LocalDateTime tmpReadyDateTime = previous == null ? resource.getResourceStartDateTime() : previous.getEndDateTime();
 
-        LocalDateTime startDateTime = predecessorEnd != null
-                && (previousEnd == null || predecessorEnd.isAfter(previousEnd))
-                ? predecessorEnd
-                : previousEnd;
+        // inconsistent previous variable
+        if (tmpReadyDateTime == null) {
+            return null;
+        }
 
-        logger.trace("UpdateStartDateTime for {} on {} with previousEnd {} and predecessorEnd {} with result {} vs {}", id, resource, previousEnd, predecessorEnd, startDateTime, this.startDateTime);
-        return startDateTime;
+        // loop through the predecessors and check if a delay is needed when a predecessor is finished later as the previous task
+        for(SubTask predecessor : predecessors) {
+            if(predecessor.endDateTime != null && predecessor.endDateTime.isAfter(tmpReadyDateTime)) {
+                tmpReadyDateTime = predecessor.endDateTime;
+            }
+        }
+        return tmpReadyDateTime;
+    }
+
+    @ShadowSources(value = {
+            "readyDateTime",
+            "concurrentSubTasks[].readyDateTime"
+    }
+//            , alignmentKey = "concurrentSubTasks"
+    )
+    protected LocalDateTime updateStartDateTime() {
+        if(readyDateTime == null) {
+            return null;
+        }
+       LocalDateTime tmpStartDateTime = readyDateTime;
+       for(SubTask subTask : concurrentSubTasks) {
+           if(subTask.readyDateTime != null && subTask.readyDateTime.isAfter(tmpStartDateTime)) {
+               tmpStartDateTime = subTask.readyDateTime;
+           }
+       }
+       return tmpStartDateTime;
     }
 
     @ShadowSources({"startDateTime"})
     protected LocalDateTime updateEndDateTime() {
-        LocalDateTime endDateTime = startDateTime == null ? null : startDateTime.plus(getDuration());
-        logger.trace("UpdateEndDateTime for {} with startDateTime {} with result {} vs {}", id, startDateTime, endDateTime, this.endDateTime);
-        return endDateTime;
+        return startDateTime == null ? null : startDateTime.plus(getDuration());
     }
 
     public String getId() {
@@ -142,20 +168,28 @@ public class SubTask {
         this.next = next;
     }
 
-    public SubTask getUnused() {
-        return unused;
-    }
-
-    public void setUnused(SubTask unused) {
-        this.unused = unused;
-    }
-
     public List<SubTask> getPredecessors() {
         return predecessors;
     }
 
     public void setPredecessors(List<SubTask> predecessors) {
         this.predecessors = predecessors;
+    }
+
+    public List<SubTask> getConcurrentSubTasks() {
+        return concurrentSubTasks;
+    }
+
+    public void setConcurrentSubTasks(List<SubTask> concurrentSubTasks) {
+        this.concurrentSubTasks = concurrentSubTasks;
+    }
+
+    public LocalDateTime getReadyDateTime() {
+        return readyDateTime;
+    }
+
+    public void setReadyDateTime(LocalDateTime readyDateTime) {
+        this.readyDateTime = readyDateTime;
     }
 
     public LocalDateTime getStartDateTime() {
@@ -172,5 +206,18 @@ public class SubTask {
 
     public void setEndDateTime(LocalDateTime endDateTime) {
         this.endDateTime = endDateTime;
+    }
+
+    public boolean isInconsistent() {
+        return inconsistent;
+    }
+
+    public void setInconsistent(boolean inconsistent) {
+        this.inconsistent = inconsistent;
+    }
+
+    @Override
+    public String toString() {
+        return id + " " + resource + (previous == null ? "" : " prev: " + previous.getId());
     }
 }
